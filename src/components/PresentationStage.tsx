@@ -1,128 +1,127 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MemberProfile, RevealPhase } from '../types';
 import { PRESENTATION_CONFIG } from '../data/members';
-import { CardBack } from './CardBack';
-import { CardFront } from './CardFront';
-import { MemberProfileView } from './MemberProfileView';
+import { StageCard, CardStatus, MOVE_MS, POP_MS, POP_STAGGER } from './StageCard';
+import { MemberInfo } from './MemberInfo';
 import { FinaleView } from './FinaleView';
+import { PackOpening } from './PackOpening';
+import { SliceDef } from '../utils/packSlices';
 import { sound } from '../utils/audio';
-import { Volume2, VolumeX, Maximize2, Minimize2 } from 'lucide-react';
+import { Volume2, VolumeX, Maximize2, Minimize2, Undo2 } from 'lucide-react';
 
 interface PresentationStageProps {
   members: MemberProfile[];
 }
 
 export const PresentationStage: React.FC<PresentationStageProps> = ({ members }) => {
-  const [phase, setPhase] = useState<RevealPhase>('DECK_READY');
-  const [memberIndex, setMemberIndex] = useState<number>(0);
+  const [phase, setPhase] = useState<RevealPhase>('PACK_SEALED');
+  const [cuts, setCuts] = useState<SliceDef[]>([]);
+  // Card layout is derived from one cursor: cards before it have been shown and are back in the left pile,
+  // the card at it is in the middle, cards after it are in the left pile.
+  // -1 = nothing drawn yet.
+  const [cursor, setCursor] = useState<number>(-1);
   const [isAudioEnabled, setIsAudioEnabled] = useState<boolean>(sound.isEnabled());
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [animatingLock, setAnimatingLock] = useState<boolean>(false);
+  // True while the back button rewinds: every card/description change is applied with no animation
+  const [instant, setInstant] = useState<boolean>(false);
 
-  const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const total = members.length;
 
-  const currentMember = members[memberIndex] || members[0];
-
-  // Interaction lock during active card animations to prevent rapid skipping
-  const triggerTransitionLock = (ms: number) => {
-    setAnimatingLock(true);
-    if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
-    lockTimerRef.current = setTimeout(() => {
-      setAnimatingLock(false);
-    }, ms);
+  const schedule = (fn: () => void, ms: number) => {
+    timersRef.current.push(setTimeout(fn, ms));
   };
 
-  // Advance state machine
+  const clearTimers = () => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+  };
+
+  // Input is ignored while cards are mid-flight (derived, so it can't drift from the phase)
+  const locked = phase === 'PACK_POPPING' || phase === 'CARD_MOVING';
+  const canGoBack = phase === 'CARD_MOVING' || phase === 'CARD_SHOWN' || phase === 'FINALE';
+
+  // Burst the pack and pop the deck out to the left pile
+  const openPack = () => {
+    sound.playPackBurst();
+    setPhase('PACK_POPPING');
+    // DECK_READY once the last (front) card has landed
+    schedule(() => setPhase('DECK_READY'), POP_MS + (total - 1) * POP_STAGGER + 20);
+  };
+
+  useEffect(() => clearTimers, []);
+
+  // Slide the cursor to a new card, then settle into `then`
+  const moveCursor = (next: number, then: () => void) => {
+    setCursor(next);
+    setPhase('CARD_MOVING');
+    sound.playCardDraw();
+    schedule(() => sound.playCardFlip(), Math.round(MOVE_MS * 0.32));
+    schedule(then, MOVE_MS);
+  };
+
+  const showCard = () => {
+    sound.playRevealStinger();
+    setPhase('CARD_SHOWN');
+  };
+
   const handleAdvance = useCallback(() => {
-    if (animatingLock) return;
-
-    if (phase === 'DECK_READY') {
-      sound.playCardDraw();
-      setPhase('CARD_DRAWING');
-      triggerTransitionLock(700);
-
-      setTimeout(() => {
-        sound.playCardFlip();
-        setPhase('CARD_FLIPPING');
-        triggerTransitionLock(850);
-
-        setTimeout(() => {
-          sound.playRevealStinger();
-          setPhase('PORTRAIT_REVEALED');
-          setAnimatingLock(false);
-        }, 800);
-      }, 650);
-    } else if (phase === 'PORTRAIT_REVEALED') {
-      setPhase('PROFILE_EXPANDING');
-      triggerTransitionLock(550);
-
-      setTimeout(() => {
-        setPhase('PROFILE_VISIBLE');
-        setAnimatingLock(false);
-      }, 500);
-    } else if (phase === 'PROFILE_VISIBLE') {
-      setPhase('PROFILE_CONTRACTING');
-      triggerTransitionLock(500);
-
-      setTimeout(() => {
-        sound.playCardTuck();
-        setPhase('CARD_RETURNING');
-        triggerTransitionLock(750);
-
-        setTimeout(() => {
-          if (memberIndex >= members.length - 1) {
-            // All seven members revealed -> enter Grand Collective Finale
-            sound.playFinaleChime();
-            setPhase('FINALE');
-            setAnimatingLock(false);
-          } else {
-            // Advance to next member
-            setMemberIndex((prev) => prev + 1);
-            setPhase('DECK_READY');
-            setAnimatingLock(false);
-          }
-        }, 700);
-      }, 450);
-    }
-  }, [phase, memberIndex, members.length, animatingLock]);
-
-  // Backward navigation
-  const handleBack = useCallback(() => {
-    if (animatingLock) return;
-
-    if (phase === 'PROFILE_VISIBLE') {
-      setPhase('PORTRAIT_REVEALED');
-    } else if (phase === 'PORTRAIT_REVEALED') {
-      setPhase('DECK_READY');
-    } else if (phase === 'DECK_READY') {
-      if (memberIndex > 0) {
-        setMemberIndex((prev) => prev - 1);
-        setPhase('PROFILE_VISIBLE');
+    if (phase === 'DECK_READY' || phase === 'CARD_SHOWN') {
+      if (cursor < total - 1) {
+        moveCursor(cursor + 1, showCard);
+      } else {
+        // Last card goes to the back of the pile, then the finale
+        moveCursor(total, () => {
+          sound.playFinaleChime();
+          setPhase('FINALE');
+        });
       }
-    } else if (phase === 'FINALE') {
-      setMemberIndex(members.length - 1);
-      setPhase('PROFILE_VISIBLE');
     }
-  }, [phase, memberIndex, members.length, animatingLock]);
+  }, [phase, cursor, total]);
+
+  // A swipe crossed the pack (PackOpening opens it itself once the swiping stops)
+  const handleCut = useCallback((cut: SliceDef) => setCuts((list) => [...list, cut]), []);
+
+  // Instant rewind to the previous card: cancels any move in progress and skips all animation
+  const handleBack = useCallback(() => {
+    if (!canGoBack) return;
+
+    clearTimers();
+    setInstant(true);
+    if (phase === 'FINALE') {
+      setCursor(total - 1);
+      setPhase('CARD_SHOWN');
+    } else if (cursor > 0) {
+      setCursor(cursor - 1);
+      setPhase('CARD_SHOWN');
+    } else {
+      setCursor(-1);
+      setPhase('DECK_READY');
+    }
+    // Re-enable transitions only after the un-animated layout has been painted
+    requestAnimationFrame(() => requestAnimationFrame(() => setInstant(false)));
+  }, [canGoBack, phase, cursor, total]);
 
   const handleReset = useCallback(() => {
-    setMemberIndex(0);
-    setPhase('DECK_READY');
-    setAnimatingLock(false);
+    clearTimers();
+    setCursor(-1);
+    setCuts([]);
+    setPhase('PACK_SEALED');
   }, []);
 
   const handleJumpToMember = useCallback((idx: number) => {
-    if (animatingLock) return;
-    setMemberIndex(idx);
-    sound.playCardDraw();
-    setPhase('PORTRAIT_REVEALED');
-  }, [animatingLock]);
+    if (locked) return;
+    clearTimers();
+    moveCursor(idx, showCard);
+  }, [locked]);
 
   const handleJumpToFinale = useCallback(() => {
-    if (animatingLock) return;
+    if (locked) return;
+    clearTimers();
     sound.playFinaleChime();
+    setCursor(total);
     setPhase('FINALE');
-  }, [animatingLock]);
+  }, [locked, total]);
 
   const toggleAudio = () => {
     const val = sound.toggle();
@@ -172,11 +171,23 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleAdvance, handleBack, handleReset, handleJumpToMember, handleJumpToFinale]);
 
-  // Physical cards remaining in the deck behind the active card
-  const cardsRemainingInDeck = Math.max(0, members.length - memberIndex - 1);
+  const packSealed = phase === 'PACK_SEALED';
+  const packPopping = phase === 'PACK_POPPING';
+  const hint =
+    packSealed
+      ? 'SWIPE ACROSS THE PACK TO SLICE'
+      : phase === 'DECK_READY'
+      ? 'CLICK TO DRAW A CARD'
+      : phase === 'CARD_SHOWN'
+      ? cursor < total - 1 ? 'CLICK FOR NEXT CARD' : 'CLICK TO FINISH'
+      : '';
+  const drawn = Math.min(Math.max(cursor + 1, 0), total);
 
   return (
-    <div className="relative w-full h-full overflow-hidden select-none bg-[#4D0E12]">
+    <div
+      className="relative w-full h-full overflow-hidden select-none bg-[#4D0E12]"
+      style={{ '--ch': 'min(42vh, 56vw)', '--cw': 'calc(var(--ch) * 2 / 3)', '--pile-x': '38vw' } as React.CSSProperties}
+    >
       {/* 1. Replaceable Presentation Background Image */}
       <div
         className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none"
@@ -203,9 +214,9 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
                 <div
                   key={i}
                   className={`h-1.5 transition-all duration-300 rounded-full ${
-                    i === memberIndex && phase !== 'FINALE'
+                    i === cursor && phase !== 'FINALE'
                       ? 'w-4 bg-[#F5EFC6]'
-                      : i < memberIndex || phase === 'FINALE'
+                      : i < cursor || phase === 'FINALE'
                       ? 'w-1.5 bg-[#A5BCD6]'
                       : 'w-1.5 bg-white/25'
                   }`}
@@ -213,7 +224,7 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
               ))}
             </div>
             <span className="font-mono text-[11px] tracking-wider text-[#F5EFC6] font-semibold pl-1">
-              {phase === 'FINALE' ? 'FINALE' : `0${memberIndex + 1}/07`}
+              {phase === 'FINALE' ? 'FINALE' : `0${drawn}/07`}
             </span>
           </div>
         )}
@@ -237,142 +248,105 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
         </div>
       </div>
 
-      {/* 4. MAIN VIEWPORT / BALANCED CENTRED STAGE */}
-      <main className="relative z-10 w-full h-full flex items-center justify-center p-4 sm:p-6 perspective-container overflow-hidden">
-        {/* SCENE A: GRAND COLLECTIVE FINALE */}
+      {/* Back button: bottom-right, deliberately has no transitions or click animation */}
+      {canGoBack && (
+        <button
+          onClick={handleBack}
+          onMouseDown={(e) => e.preventDefault()}
+          tabIndex={-1}
+          className="absolute bottom-6 right-7 z-40 flex items-center gap-2.5 px-6 py-3.5 rounded-md bg-black/55 border-2 border-[#F5EFC6]/70 text-[#F5EFC6] font-mono text-sm tracking-[0.22em] uppercase font-bold hover:bg-black/75"
+          title="Back to previous card (←)"
+        >
+          <Undo2 className="w-5 h-5" />
+          Back
+        </button>
+      )}
+
+      {/* 4. MAIN VIEWPORT — any click advances */}
+      <main
+        onClick={handleAdvance}
+        className={`relative z-10 w-full h-full flex items-center justify-center p-4 sm:p-6 perspective-container overflow-hidden touch-none ${
+          packSealed ? 'cursor-crosshair' : 'cursor-pointer'
+        }`}
+      >
         {phase === 'FINALE' && (
           <FinaleView
             members={members}
             onSelectMember={(idx) => {
-              setMemberIndex(idx);
-              setPhase('PROFILE_VISIBLE');
+              setCursor(idx);
+              setPhase('CARD_SHOWN');
             }}
             onReplay={handleReset}
           />
         )}
 
-        {/* SCENE B: FULL-SCREEN EDITORIAL MEMBER PROFILE */}
-        {(phase === 'PROFILE_EXPANDING' ||
-          phase === 'PROFILE_VISIBLE' ||
-          phase === 'PROFILE_CONTRACTING') && (
-          <MemberProfileView
-            member={currentMember}
-            isExpanding={phase === 'PROFILE_EXPANDING'}
-            isContracting={phase === 'PROFILE_CONTRACTING'}
-            onAdvance={handleAdvance}
-          />
-        )}
-
-        {/* SCENE C: CENTRED STATIONARY DECK & 3D ACTIVE CARD */}
         {phase !== 'FINALE' && (
-          <div
-            className={`absolute inset-0 flex flex-col items-center justify-center z-20 transition-opacity duration-500 ${
-              phase === 'PROFILE_VISIBLE' ? 'opacity-0 pointer-events-none' : 'opacity-100'
-            }`}
-          >
-            {/* Stationary Deck Base — Perfectly centered, no lateral drift */}
+          <>
+            {/* Card anchor: left pile -> middle -> back of the left pile, all laid out around this box */}
             <div
-              className="relative preserve-3d"
+              className="absolute left-1/2 top-1/2 preserve-3d"
               style={{
-                width: 'clamp(280px, 24vw, 360px)',
-                aspectRatio: '2 / 3',
-                transform: 'rotateX(10deg)', // Centered pitch without sideways rotateY!
-                transformStyle: 'preserve-3d',
+                width: 'var(--cw)',
+                height: 'var(--ch)',
+                transform: 'translate(-50%, -50%)',
               }}
             >
-              {/* Offset Card Layers Behind Active Card (stationary stack depth) */}
-              {Array.from({ length: Math.min(cardsRemainingInDeck, 4) }).map((_, i) => {
-                const depth = (i + 1) * -6;
-                const yOffset = (i + 1) * 3;
+              {members.map((member, i) => {
+                const status: CardStatus = packSealed
+                  ? 'pack'
+                  : i === cursor ? 'center' : 'left';
+                // Left pile: undrawn cards on top, already-shown cards returned beneath them
+                // (the most recently shown one at the very back)
+                const rank =
+                  status === 'pack' ? i
+                  : status === 'left' ? (i > cursor ? i - (cursor + 1) : total - 1 - cursor + i)
+                  : 0;
 
                 return (
-                  <div
-                    key={i}
-                    className="absolute inset-0 rounded-[14px] pointer-events-none transition-all duration-500 overflow-hidden"
-                    style={{
-                      transform: `translate3d(0px, ${yOffset}px, ${depth}px)`,
-                      boxShadow: '0 12px 24px rgba(0, 0, 0, 0.65)',
-                    }}
-                  >
-                    <img
-                      src={currentMember.backArtwork || PRESENTATION_CONFIG.defaultCardBack}
-                      alt="Deck stack card"
-                      className="w-full h-full object-contain rounded-[14px] pointer-events-none opacity-90"
-                      draggable={false}
-                    />
-                  </div>
+                  <StageCard
+                    key={member.id}
+                    frontSrc={member.frontArtwork}
+                    backSrc={member.backArtwork || PRESENTATION_CONFIG.defaultCardBack}
+                    altText={member.name || `Member ${member.order}`}
+                    status={status}
+                    rank={rank}
+                    popping={packPopping}
+                    popDelay={(total - 1 - i) * POP_STAGGER}
+                    instant={instant}
+                  />
                 );
               })}
 
-              {/* THE ACTIVE CARD — Perfectly centered lift, 3D flip, and return */}
+              {(packSealed || packPopping) && <PackOpening cuts={cuts} exiting={packPopping} onCut={handleCut} onOpen={openPack} />}
+            </div>
+
+            {/* Description sits to the right of the middle card, clear of the left pile */}
+            {phase === 'CARD_SHOWN' && cursor >= 0 && cursor < total && (
               <div
-                className="absolute inset-0 rounded-[14px] preserve-3d cursor-pointer"
-                onClick={handleAdvance}
+                className="absolute z-30 pointer-events-none"
                 style={{
-                  transition:
-                    phase === 'CARD_DRAWING'
-                      ? 'all 0.75s cubic-bezier(0.2, 0.9, 0.3, 1)'
-                      : phase === 'CARD_FLIPPING'
-                      ? 'transform 0.85s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.85s ease'
-                      : phase === 'CARD_RETURNING'
-                      ? 'all 0.75s cubic-bezier(0.6, 0.05, 0.2, 1)'
-                      : 'transform 0.4s ease-out, box-shadow 0.4s ease-out',
-                  transform:
-                    phase === 'DECK_READY'
-                      ? 'translate3d(0, 0, 4px) rotateY(0deg)'
-                      : phase === 'CARD_DRAWING'
-                      ? 'translate3d(0, -65px, 90px) rotateY(0deg) scale(1.04)'
-                      : phase === 'CARD_FLIPPING'
-                      ? 'translate3d(0, -35px, 130px) rotateY(180deg) scale(1.08)'
-                      : phase === 'PORTRAIT_REVEALED'
-                      ? 'translate3d(0, -25px, 120px) rotateY(180deg) scale(1.08)'
-                      : phase === 'CARD_RETURNING'
-                      ? 'translate3d(0, 60px, -30px) rotateY(0deg) scale(0.95)'
-                      : 'translate3d(0, 0, 0)',
-                  boxShadow:
-                    phase === 'CARD_FLIPPING' || phase === 'PORTRAIT_REVEALED'
-                      ? '0 35px 75px -15px rgba(0, 0, 0, 0.85), 0 0 25px rgba(245, 239, 198, 0.15)'
-                      : '0 14px 32px rgba(0, 0, 0, 0.65)',
+                  left: 'calc(50% + var(--cw) * 0.56 + 28px)',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  width: 'calc(var(--pile-x) - var(--cw) * 0.96 - 52px)',
                 }}
               >
-                {/* Card Back Face (0 deg) */}
-                <div className="absolute inset-0 backface-hidden">
-                  <CardBack
-                    imageSrc={currentMember.backArtwork || PRESENTATION_CONFIG.defaultCardBack}
-                  />
-                </div>
+                <MemberInfo key={cursor} member={members[cursor]} instant={instant} />
+              </div>
+            )}
 
-                {/* Card Front Face (180 deg) */}
-                <div
-                  className="absolute inset-0 backface-hidden"
-                  style={{ transform: 'rotateY(180deg)' }}
-                >
-                  <CardFront
-                    imageSrc={currentMember.frontArtwork}
-                    altText={currentMember.name || `Member ${currentMember.order}`}
-                  />
-                </div>
+            {/* Advance hint */}
+            <div
+              className={`absolute top-5 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none transition-opacity duration-300 ${
+                hint ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              <span className="font-mono text-xs tracking-[0.3em] uppercase font-bold text-[#F5EFC6]">{hint}</span>
+              <div className="font-mono text-[9px] text-[#A5BCD6]/75 tracking-[0.2em] uppercase mt-0.5">
+                {packSealed ? 'HOLD AND DRAG BACK AND FORTH' : 'SPACEBAR / CLICK TO ADVANCE'}
               </div>
             </div>
-
-            {/* Advance affordance prompt below centered deck */}
-            <div
-              onClick={handleAdvance}
-              className="mt-8 flex flex-col items-center gap-1 cursor-pointer text-center group"
-            >
-              <span className="font-mono text-xs sm:text-sm tracking-[0.3em] uppercase font-bold text-[#F5EFC6] group-hover:text-white transition-colors">
-                {phase === 'DECK_READY'
-                  ? 'PRESS TO REVEAL'
-                  : phase === 'PORTRAIT_REVEALED'
-                  ? 'EXPAND PROFILE'
-                  : 'ADVANCE'}
-              </span>
-              <span className="font-mono text-[9px] sm:text-[10px] text-[#A5BCD6]/75 tracking-[0.2em] uppercase">
-                SPACEBAR / CLICK TO ADVANCE
-              </span>
-              <div className="w-12 h-[1px] bg-[#F5EFC6]/40 group-hover:w-20 transition-all duration-300 mt-0.5" />
-            </div>
-          </div>
+          </>
         )}
       </main>
     </div>

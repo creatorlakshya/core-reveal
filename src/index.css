@@ -13,14 +13,6 @@
   --font-mono: 'IBM Plex Mono', 'JetBrains Mono', monospace;
 }
 
-:root {
-  --color-cream: #F5EFC6;
-  --color-burgundy: #4D0E12;
-  --color-cerulean: #A5BCD6;
-  --color-potting-soil: #4A2E27;
-  --color-java-brown: #231815;
-}
-
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -77,15 +69,63 @@ html, body {
   -webkit-backface-visibility: hidden;
 }
 
-/* Custom Scrollbar if needed */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Pack slicing */
+@keyframes pack-piece-move {
+  from { transform: translate3d(calc(var(--u) * var(--fx)), calc(var(--u) * var(--fy)), 0) rotate(calc(var(--fr) * 1deg)); }
+  to   { transform: translate3d(calc(var(--u) * var(--tx)), calc(var(--u) * var(--ty)), 0) rotate(calc(var(--tr) * 1deg)); }
 }
-::-webkit-scrollbar-track {
-  background: rgba(35, 24, 21, 0.4);
+
+@keyframes pack-piece-exit {
+  from { opacity: 1; transform: translate3d(calc(var(--u) * var(--fx)), calc(var(--u) * var(--fy)), 0) rotate(calc(var(--fr) * 1deg)); }
+  to   { opacity: 0; transform: translate3d(calc(var(--u) * var(--tx)), calc(var(--u) * var(--ty)), calc(var(--u) * 120)) rotate(calc(var(--tr) * 1deg)); }
 }
-::-webkit-scrollbar-thumb {
-  background: #4A2E27;
-  border-radius: 3px;
+
+@keyframes pack-art-flash {
+  from { filter: brightness(1.5) saturate(0.8); }
+  to   { filter: brightness(1) saturate(1); }
+}
+
+
+@keyframes pack-slash {
+  0%   { transform: scaleX(0); opacity: 1; }
+  25%  { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(1) scaleY(0.15); opacity: 0; }
+}
+
+@keyframes pack-flash {
+  0%   { opacity: var(--flash, 0.3); }
+  100% { opacity: 0; }
+}
+
+@keyframes pack-spark {
+  0%   { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.2); }
+}
+
+@keyframes pack-ring {
+  0%   { opacity: 0.95; transform: scale(0.3); }
+  100% { opacity: 0; transform: scale(15); }
+}
+
+@keyframes pack-glow {
+  0%   { opacity: 1; transform: scale(0.4); }
+  100% { opacity: 0; transform: scale(2.4); }
+}
+
+
+@keyframes info-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+
+@keyframes pack-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(calc(var(--u) * var(--fdx)), calc(var(--u) * var(--fdy)), 0) rotate(calc(var(--fdr) * 1deg)); }
+}
+
+@keyframes pack-seam {
+  0%   { opacity: 0; transform: scaleX(0.3); }
+  30%  { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0.45; transform: scaleX(1); }
 }

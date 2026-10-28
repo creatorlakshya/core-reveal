@@ -11,15 +11,12 @@ export interface MemberProfile {
 }
 
 export type RevealPhase =
-  | 'DECK_READY'          // Physical 7-card deck resting on stage
-  | 'CARD_DRAWING'        // Top card lifts forward from deck
-  | 'CARD_FLIPPING'       // 3D vertical rotation
-  | 'PORTRAIT_REVEALED'   // Face up, artwork revealed
-  | 'PROFILE_EXPANDING'   // Continuous zoom & spread into full profile view
-  | 'PROFILE_VISIBLE'     // Full profile view on screen
-  | 'PROFILE_CONTRACTING' // Shrinks back into card geometry
-  | 'CARD_RETURNING'      // Card turns face down and slides to back of deck
-  | 'FINALE';             // Grand collective 7-card showcase
+  | 'PACK_SEALED'    // Sealed pack awaiting swipes; opens itself after a short idle
+  | 'PACK_POPPING'   // Pack bursts apart, cards pop out to the left pile
+  | 'DECK_READY'     // All cards in the left pile, middle empty
+  | 'CARD_MOVING'    // A card travelling between the left pile and the middle
+  | 'CARD_SHOWN'     // Current card face-up in the middle with its description
+  | 'FINALE';        // Grand collective 7-card showcase
 
 export interface PresentationConfig {
   defaultCardBack: string;
