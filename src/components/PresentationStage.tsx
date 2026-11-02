@@ -2,12 +2,9 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MemberProfile, RevealPhase } from '../types';
 import { PRESENTATION_CONFIG } from '../data/members';
 import { StageCard, CardStatus, MOVE_MS, POP_MS, POP_STAGGER } from './StageCard';
-import { MemberInfo } from './MemberInfo';
-import { FinaleView } from './FinaleView';
 import { PackOpening } from './PackOpening';
 import { SliceDef } from '../utils/packSlices';
 import { sound } from '../utils/audio';
-import { Volume2, VolumeX, Maximize2, Minimize2, Undo2 } from 'lucide-react';
 
 interface PresentationStageProps {
   members: MemberProfile[];
@@ -20,8 +17,6 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
   // the card at it is in the middle, cards after it are in the left pile.
   // -1 = nothing drawn yet.
   const [cursor, setCursor] = useState<number>(-1);
-  const [isAudioEnabled, setIsAudioEnabled] = useState<boolean>(sound.isEnabled());
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   // True while the back button rewinds: every card/description change is applied with no animation
   const [instant, setInstant] = useState<boolean>(false);
 
@@ -65,16 +60,20 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
     setPhase('CARD_SHOWN');
   };
 
+  const enterFinale = () => {
+    clearTimers();
+    sound.playFinaleChime();
+    setCursor(total);
+    setPhase('FINALE');
+  };
+
   const handleAdvance = useCallback(() => {
     if (phase === 'DECK_READY' || phase === 'CARD_SHOWN') {
       if (cursor < total - 1) {
         moveCursor(cursor + 1, showCard);
       } else {
-        // Last card goes to the back of the pile, then the finale
-        moveCursor(total, () => {
-          sound.playFinaleChime();
-          setPhase('FINALE');
-        });
+        // Every card has been shown: spread them across the screen
+        enterFinale();
       }
     }
   }, [phase, cursor, total]);
@@ -109,32 +108,27 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
     setPhase('PACK_SEALED');
   }, []);
 
+  // Number keys (and clicking a card in the finale): jump straight to a card. Works mid-move
+  // too (the move in flight is cancelled); only the sealed pack has nothing to jump to yet.
   const handleJumpToMember = useCallback((idx: number) => {
-    if (locked) return;
+    if (phase === 'PACK_SEALED' || phase === 'PACK_POPPING' || idx < 0 || idx >= total) return;
+    if (idx === cursor && phase === 'CARD_SHOWN') return;
     clearTimers();
     moveCursor(idx, showCard);
-  }, [locked]);
+  }, [phase, cursor, total]);
 
   const handleJumpToFinale = useCallback(() => {
     if (locked) return;
-    clearTimers();
-    sound.playFinaleChime();
-    setCursor(total);
-    setPhase('FINALE');
+    enterFinale();
   }, [locked, total]);
 
-  const toggleAudio = () => {
-    const val = sound.toggle();
-    setIsAudioEnabled(val);
-  };
+  const toggleAudio = () => sound.toggle();
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
     } else {
       document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
     }
   };
 
@@ -161,7 +155,7 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
       } else if (e.key === 'e' || e.key === 'E' || e.code === 'KeyE') {
         e.preventDefault();
         handleJumpToFinale();
-      } else if (e.key >= '1' && e.key <= '7') {
+      } else if (/^[1-9]$/.test(e.key)) {
         e.preventDefault();
         handleJumpToMember(parseInt(e.key, 10) - 1);
       }
@@ -173,20 +167,11 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
 
   const packSealed = phase === 'PACK_SEALED';
   const packPopping = phase === 'PACK_POPPING';
-  const hint =
-    packSealed
-      ? 'SWIPE ACROSS THE PACK TO SLICE'
-      : phase === 'DECK_READY'
-      ? 'CLICK TO DRAW A CARD'
-      : phase === 'CARD_SHOWN'
-      ? cursor < total - 1 ? 'CLICK FOR NEXT CARD' : 'CLICK TO FINISH'
-      : '';
-  const drawn = Math.min(Math.max(cursor + 1, 0), total);
-
+  const finale = phase === 'FINALE';
   return (
     <div
       className="relative w-full h-full overflow-hidden select-none bg-[#4D0E12]"
-      style={{ '--ch': 'min(42vh, 56vw)', '--cw': 'calc(var(--ch) * 2 / 3)', '--pile-x': '38vw' } as React.CSSProperties}
+      style={{ '--ch': 'min(46vh, 60vw)', '--cw': 'calc(var(--ch) * 2 / 3)', '--pile-x': '38vw', '--spread-x': 'min(15vw, calc(var(--cw) * 0.95))', '--spread-y': 'calc(var(--ch) * 0.86)' } as React.CSSProperties}
     >
       {/* 1. Replaceable Presentation Background Image */}
       <div
@@ -204,63 +189,17 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
         />
       )}
 
-      {/* 3. Minimal floating controls: Unobtrusive 7-Member Progress & Audio/Fullscreen */}
-      <div className="absolute top-5 right-6 z-40 flex items-center gap-4 pointer-events-auto">
-        {/* Optional 7-Position Progress Indicator (toggleable via config) */}
-        {PRESENTATION_CONFIG.showProgressIndicator && (
-          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-black/35 backdrop-blur-md border border-white/10 shadow-sm">
-            <div className="flex items-center gap-1.5">
-              {members.map((_, i) => (
-                <div
-                  key={i}
-                  className={`h-1.5 transition-all duration-300 rounded-full ${
-                    i === cursor && phase !== 'FINALE'
-                      ? 'w-4 bg-[#F5EFC6]'
-                      : i < cursor || phase === 'FINALE'
-                      ? 'w-1.5 bg-[#A5BCD6]'
-                      : 'w-1.5 bg-white/25'
-                  }`}
-                />
-              ))}
-            </div>
-            <span className="font-mono text-[11px] tracking-wider text-[#F5EFC6] font-semibold pl-1">
-              {phase === 'FINALE' ? 'FINALE' : `0${drawn}/07`}
-            </span>
-          </div>
-        )}
-
-        {/* Minimal Audio & Fullscreen Actions */}
-        <div className="flex items-center gap-1 p-1 rounded-full bg-black/35 backdrop-blur-md border border-white/10">
-          <button
-            onClick={toggleAudio}
-            className="p-1.5 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-            title={isAudioEnabled ? "Sound Enabled (M)" : "Sound Muted (M)"}
-          >
-            {isAudioEnabled ? <Volume2 className="w-3.5 h-3.5 text-[#A5BCD6]" /> : <VolumeX className="w-3.5 h-3.5" />}
-          </button>
-          <button
-            onClick={toggleFullscreen}
-            className="p-1.5 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-            title="Toggle Fullscreen (F)"
-          >
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
-        </div>
-      </div>
-
-      {/* Back button: bottom-right, deliberately has no transitions or click animation */}
-      {canGoBack && (
-        <button
-          onClick={handleBack}
-          onMouseDown={(e) => e.preventDefault()}
-          tabIndex={-1}
-          className="absolute bottom-6 right-7 z-40 flex items-center gap-2.5 px-6 py-3.5 rounded-md bg-black/55 border-2 border-[#F5EFC6]/70 text-[#F5EFC6] font-mono text-sm tracking-[0.22em] uppercase font-bold hover:bg-black/75"
-          title="Back to previous card (←)"
-        >
-          <Undo2 className="w-5 h-5" />
-          Back
-        </button>
-      )}
+      {/* Title */}
+      <h1
+        className="absolute top-6 left-1/2 -translate-x-1/2 z-30 pointer-events-none font-pixel text-[#F5EFC6] whitespace-nowrap"
+        style={{
+          fontSize: 'clamp(16px, 2.4vw, 36px)',
+          letterSpacing: '0.14em',
+          textShadow: '3px 3px 0 #231815, 0 0 18px rgba(245, 239, 198, 0.25)',
+        }}
+      >
+        CORE TEAM
+      </h1>
 
       {/* 4. MAIN VIEWPORT — any click advances */}
       <main
@@ -269,18 +208,7 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
           packSealed ? 'cursor-crosshair' : 'cursor-pointer'
         }`}
       >
-        {phase === 'FINALE' && (
-          <FinaleView
-            members={members}
-            onSelectMember={(idx) => {
-              setCursor(idx);
-              setPhase('CARD_SHOWN');
-            }}
-            onReplay={handleReset}
-          />
-        )}
-
-        {phase !== 'FINALE' && (
+        {(
           <>
             {/* Card anchor: left pile -> middle -> back of the left pile, all laid out around this box */}
             <div
@@ -294,9 +222,13 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
               {members.map((member, i) => {
                 const status: CardStatus = packSealed
                   ? 'pack'
-                  : i === cursor ? 'center' : 'left';
+                  : finale ? 'spread' : i === cursor ? 'center' : 'left';
                 // Left pile: undrawn cards on top, already-shown cards returned beneath them
                 // (the most recently shown one at the very back)
+                // Finale layout: the first four cards on the top row, the rest centred below
+                const topRow = Math.ceil(total / 2);
+                const row = i < topRow ? 0 : 1;
+                const slot = row === 0 ? i - (topRow - 1) / 2 : i - topRow - (total - topRow - 1) / 2;
                 const rank =
                   status === 'pack' ? i
                   : status === 'left' ? (i > cursor ? i - (cursor + 1) : total - 1 - cursor + i)
@@ -310,41 +242,17 @@ export const PresentationStage: React.FC<PresentationStageProps> = ({ members })
                     altText={member.name || `Member ${member.order}`}
                     status={status}
                     rank={rank}
-                    popping={packPopping}
-                    popDelay={(total - 1 - i) * POP_STAGGER}
+                    popping={packPopping || finale}
+                    popDelay={finale ? i * 70 : (total - 1 - i) * POP_STAGGER}
+                    slot={slot}
+                    row={row}
+                    onSelect={finale ? () => handleJumpToMember(i) : undefined}
                     instant={instant}
                   />
                 );
               })}
 
               {(packSealed || packPopping) && <PackOpening cuts={cuts} exiting={packPopping} onCut={handleCut} onOpen={openPack} />}
-            </div>
-
-            {/* Description sits to the right of the middle card, clear of the left pile */}
-            {phase === 'CARD_SHOWN' && cursor >= 0 && cursor < total && (
-              <div
-                className="absolute z-30 pointer-events-none"
-                style={{
-                  left: 'calc(50% + var(--cw) * 0.56 + 28px)',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  width: 'calc(var(--pile-x) - var(--cw) * 0.96 - 52px)',
-                }}
-              >
-                <MemberInfo key={cursor} member={members[cursor]} instant={instant} />
-              </div>
-            )}
-
-            {/* Advance hint */}
-            <div
-              className={`absolute top-5 left-1/2 -translate-x-1/2 z-30 text-center pointer-events-none transition-opacity duration-300 ${
-                hint ? 'opacity-100' : 'opacity-0'
-              }`}
-            >
-              <span className="font-mono text-xs tracking-[0.3em] uppercase font-bold text-[#F5EFC6]">{hint}</span>
-              <div className="font-mono text-[9px] text-[#A5BCD6]/75 tracking-[0.2em] uppercase mt-0.5">
-                {packSealed ? 'HOLD AND DRAG BACK AND FORTH' : 'SPACEBAR / CLICK TO ADVANCE'}
-              </div>
             </div>
           </>
         )}

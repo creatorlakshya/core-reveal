@@ -269,11 +269,6 @@ for (let y = 0; y < 1080; y++) {
   }
 }
 
-// Subtle corner metadata brackets instead of giant center text
-bgImg.drawText('STAGE BACKGROUND ARTWORK PLACEHOLDER', 50, 45, 2, [245, 239, 198, 120]);
-bgImg.drawText('PUBLIC/ASSETS/BACKGROUND/BACKGROUND-PLACEHOLDER.JPG', 50, 70, 2, [165, 188, 214, 100]);
-bgImg.drawText('1920X1080 // 16:9 // REPLACEABLE ASSET', 50, 1025, 2, [245, 239, 198, 90]);
-
 const bgPngBuffer = bgImg.toPng();
 fs.writeFileSync(path.join(BG_DIR, 'background-placeholder.jpg'), bgPngBuffer);
 fs.writeFileSync(path.join(BG_DIR, 'background-placeholder.png'), bgPngBuffer);

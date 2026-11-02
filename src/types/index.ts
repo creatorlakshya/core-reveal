@@ -22,5 +22,4 @@ export interface PresentationConfig {
   defaultCardBack: string;
   backgroundImage: string;
   backgroundOverlayOpacity: number;
-  showProgressIndicator: boolean;
 }

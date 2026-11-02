@@ -229,6 +229,7 @@ export const PackOpening: React.FC<PackOpeningProps> = ({ cuts, exiting, onCut, 
         <div
           className="absolute inset-0 overflow-hidden"
           style={{
+            borderRadius: 'calc(var(--u) * 9)', // follows the pack image's rounded corners
             transform: `translateZ(-1px) scale(${exiting ? 1.12 : 1})`,
             opacity: exiting || slices === 0 ? 0 : Math.min(0.95, 0.55 + slices * 0.07),
             transition: exiting ? 'opacity 0.6s ease-out, transform 0.6s ease-out' : 'opacity 0.7s ease-out',

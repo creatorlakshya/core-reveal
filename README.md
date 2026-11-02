@@ -9,7 +9,7 @@
 All visual artwork is decoupled from CSS and code logic. Drop the final artwork files directly into the following paths in `public/`:
 
 ### 1. Stage Background Artwork
-- **Path**: [`public/assets/background/background-placeholder.jpg`](file:///c:/Users/LENOVO/OneDrive/Desktop/Cards%20Revealing/public/assets/background/background-placeholder.jpg)
+- **Path**: [`public/assets/background/background.jpg`](file:///c:/Users/LENOVO/OneDrive/Desktop/Cards%20Revealing/public/assets/background/background.jpg)
 - **Ratio**: 16:9 widescreen or ultra-wide (e.g., `1920 × 1080` or higher)
 - **Behavior**: Rendered via `background-size: cover` and centered automatically behind all reveal phases.
 
@@ -21,13 +21,13 @@ All visual artwork is decoupled from CSS and code logic. Drop the final artwork 
 ### 3. Member Front Artworks (Seven Cards)
 | Member | Asset Path |
 | :--- | :--- |
-| **Member 01** | `public/assets/cards/member-01-front-placeholder.png` |
-| **Member 02** | `public/assets/cards/member-02-front-placeholder.png` |
-| **Member 03** | `public/assets/cards/member-03-front-placeholder.png` |
-| **Member 04** | `public/assets/cards/member-04-front-placeholder.png` |
-| **Member 05** | `public/assets/cards/member-05-front-placeholder.png` |
-| **Member 06** | `public/assets/cards/member-06-front-placeholder.png` |
-| **Member 07** | `public/assets/cards/member-07-front-placeholder.png` |
+| **Member 01** | `public/assets/cards/member-01-front.png` |
+| **Member 02** | `public/assets/cards/member-02-front.png` |
+| **Member 03** | `public/assets/cards/member-03-front.png` |
+| **Member 04** | `public/assets/cards/member-04-front.png` |
+| **Member 05** | `public/assets/cards/member-05-front.png` |
+| **Member 06** | `public/assets/cards/member-06-front.png` |
+| **Member 07** | `public/assets/cards/member-07-front.png` |
 
 ---
 
@@ -39,13 +39,11 @@ Configuration and member information are located in [`src/data/members.ts`](file
 ```typescript
 export const PRESENTATION_CONFIG = {
   // Path to background artwork
-  backgroundImage: '/assets/background/background-placeholder.jpg',
+  backgroundImage: '/assets/background/background.jpg',
   // Configurable dark overlay for legibility (0 = no overlay, 0.25 = subtle 25% tint)
   backgroundOverlayOpacity: 0.2,
   // Shared card back artwork
   defaultCardBack: '/assets/cards/card-back-placeholder.png',
-  // Toggle the floating top-right 7-member progress indicator (true / false)
-  showProgressIndicator: true,
 };
 ```
 
@@ -81,7 +79,6 @@ export interface MemberProfile {
    - The viewport is balanced and centered.
 4. **Unobtrusive Stage Controls**
    - No developer toolbar, debug panel, or bottom controllers.
-   - Progress indicator is a clean floating pill (can be turned off via `showProgressIndicator`).
 
 ---
 

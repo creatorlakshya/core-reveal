@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { CardBack } from './CardBack';
 import { CardFront } from './CardFront';
 
-export type CardStatus = 'pack' | 'left' | 'center';
+export type CardStatus = 'pack' | 'left' | 'center' | 'spread';
 
 interface StageCardProps {
   frontSrc: string;
@@ -10,8 +10,11 @@ interface StageCardProps {
   altText: string;
   status: CardStatus;
   rank: number;        // depth within its pile (0 = top of the pile)
-  popping: boolean;    // pack is bursting: fly out to the left pile with a stagger
+  popping: boolean;    // cards are travelling as a staggered group (pack burst, finale spread)
   popDelay: number;
+  slot: number;        // column in the finale spread, centred on 0
+  row: number;         // row in the finale spread (0 = top)
+  onSelect?: () => void; // click handler (finale spread: bring this card back up)
   instant: boolean;    // skip every transition/animation (used by the back button)
 }
 
@@ -32,7 +35,7 @@ const arc = (el: HTMLElement, peak: string, offset: number, duration: number, de
     { duration, delay, easing: 'ease-in-out' }
   );
 
-const transformFor = (status: CardStatus, rank: number) => {
+const transformFor = (status: CardStatus, rank: number, slot: number, row: number) => {
   const y = rank * 2.5;
   const z = -rank * 5;
   switch (status) {
@@ -42,6 +45,9 @@ const transformFor = (status: CardStatus, rank: number) => {
       return `translate3d(calc(-1 * var(--pile-x)), ${y}px, ${z}px) rotateY(9deg) scale(0.8)`;
     case 'center':
       return 'translate3d(0px, 0px, 40px) scale(1.12)';
+    case 'spread':
+      // Rows across the screen, each centred, with a slight tilt
+      return `translate3d(calc(${slot} * var(--spread-x)), calc(${row - 0.5} * var(--spread-y)), 0px) rotate(${slot * 1.2}deg) scale(0.82)`;
   }
 };
 
@@ -53,6 +59,9 @@ export const StageCard: React.FC<StageCardProps> = React.memo(({
   rank,
   popping,
   popDelay,
+  slot,
+  row,
+  onSelect,
   instant,
 }) => {
   const hopRef = useRef<HTMLDivElement>(null);
@@ -70,17 +79,18 @@ export const StageCard: React.FC<StageCardProps> = React.memo(({
       arc(hopRef.current, 'translate3d(0, 120px, -90px)', 0.5, MOVE_MS);
     } else {
       // Coming into the middle: rises up and forward on the opposite side of the curve
-      arc(hopRef.current, 'translate3d(0, -50px, 160px)', 0.5, MOVE_MS);
+      arc(hopRef.current, 'translate3d(0, -50px, 160px)', 0.5, MOVE_MS, popping ? popDelay : 0);
     }
   }, [status]);
 
-  const faceUp = status === 'center';
+  const faceUp = status === 'center' || status === 'spread';
 
   return (
     <div
-      className="absolute inset-0 preserve-3d"
+      className={`absolute inset-0 preserve-3d ${onSelect ? 'cursor-pointer' : ''}`}
+      onClick={onSelect && ((e) => { e.stopPropagation(); onSelect(); })}
       style={{
-        transform: transformFor(status, rank),
+        transform: transformFor(status, rank, slot, row),
         opacity: status === 'pack' ? 0 : 1, // cards stay invisible inside the sealed pack
         transition: instant
           ? 'none'
@@ -94,7 +104,9 @@ export const StageCard: React.FC<StageCardProps> = React.memo(({
           className="absolute inset-0 preserve-3d rounded-[14px]"
           style={{
             transform: `rotateY(${faceUp ? 180 : 0}deg)`,
-            transition: instant ? 'none' : `transform ${MOVE_MS}ms cubic-bezier(0.45, 0, 0.25, 1), box-shadow 0.5s`,
+            transition: instant
+              ? 'none'
+              : `transform ${MOVE_MS}ms cubic-bezier(0.45, 0, 0.25, 1) ${popping ? popDelay : 0}ms, box-shadow 0.5s`,
             boxShadow:
               status === 'center'
                 ? '0 35px 75px -15px rgba(0, 0, 0, 0.85), 0 0 30px rgba(245, 239, 198, 0.2)'
